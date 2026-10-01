@@ -1,4 +1,6 @@
 ffmpeg
+fonts-inter
+fonts-roboto
 fonts-dejavu-core
 fonts-noto-core
 fonts-noto-cjk
