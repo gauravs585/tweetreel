@@ -29,6 +29,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 # ----------------------------------------------------------------------------
 UA = {"User-Agent": "Mozilla/5.0 (TweetToReel-personal)"}
 CW, CH = 1080, 1920
+SAFE_X, SAFE_Y = 135, 250  # Instagram reel safe zone
 ASC = 0.93  # baseline offset factor so mixed fonts line up
 
 THEMES = {
@@ -75,6 +76,10 @@ def get_font(script, size, bold):
         path = find_font(f"NotoSansCJK-{w}.ttc", f"NotoSansCJKjp-{w}.otf")
     if not path:
         path = find_font(
+            "Inter-Bold.otf" if bold else "Inter-Regular.otf",
+            "Inter-Bold.ttf" if bold else "Inter-Regular.ttf",
+            "Inter_18pt-Bold.ttf" if bold else "Inter_18pt-Regular.ttf",
+            "Roboto-Bold.ttf" if bold else "Roboto-Regular.ttf",
             "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf",
             "LiberationSans-Bold.ttf" if bold else "LiberationSans-Regular.ttf",
             "arialbd.ttf" if bold else "arial.ttf",
@@ -347,15 +352,16 @@ def render_block(tw, th, width, quote=False, media=True, show_quote=True, show_d
     return canvas.crop((0, 0, width, max(y, av)))
 
 
-def render_photo(tw, parent, theme, show_quote):
+def render_photo(tw, parent, theme, show_quote, safe=True):
     th = THEMES[theme]
-    M, GAP = 56, 28
+    GAP = 28
+    M, MY = (SAFE_X, SAFE_Y) if safe else (56, 56)
     inner = CW - 2 * M
     mb = render_block(tw, th, inner, show_quote=show_quote)
     pb = render_block(parent, th, inner, show_quote=False, show_date=False) if parent else None
-    total = M + (pb.height + GAP if pb else 0) + mb.height + M
+    total = MY + (pb.height + GAP if pb else 0) + mb.height + MY
     img = Image.new("RGBA", (CW, total), th["bg"] + (255,))
-    y = M
+    y = MY
     if pb:
         img.paste(pb, (M, y))
         x = M + MAIN_S["av"] // 2
@@ -369,10 +375,12 @@ def render_photo(tw, parent, theme, show_quote):
     return buf.getvalue()
 
 
-def render_card(tw, theme, blur, show_quote):
+def render_card(tw, theme, blur, show_quote, safe=True):
     """Text-only tweet card used above/below the video in reels."""
     th = THEMES[theme]
     mo, pad_x, pad_y = (24, 44, 40) if blur else (0, 56, 44)
+    if safe:
+        pad_x = SAFE_X - mo  # text starts exactly at the safe-zone edge
     inner = CW - 2 * mo - 2 * pad_x
     block = render_block(tw, th, inner, media=False, show_quote=show_quote, show_date=False)
     h = block.height + 2 * pad_y
@@ -444,11 +452,12 @@ def probe(path):
     return s["width"], s["height"]
 
 
-def build_reel(video_path, card, bg, tweet_on_top, crop, flip, out_path, workdir):
+def build_reel(video_path, card, bg, tweet_on_top, crop, flip, out_path, workdir, safe=True):
     w, h = probe(video_path)
     ar = 1.0 if crop else h / w
     card_h = card.height if card is not None else 0
-    f = min(1.0, CH / (card_h + CW * ar))
+    avail = CH - 2 * SAFE_Y if (safe and card is not None) else CH
+    f = min(1.0, avail / (card_h + CW * ar))
     vw = max(2, int(CW * f) // 2 * 2)
     vh = max(2, int(round(vw * ar)) // 2 * 2)
     ch = int(round(card_h * vw / CW))
@@ -510,7 +519,7 @@ def generate(url, out_type, o):
                     parent = None
         with ThreadPoolExecutor(8) as ex:
             list(ex.map(prefetch, collect_urls(tw, parent)))
-        png = render_photo(tw, parent, "dark" if o["bg"] == "Black" else "light", not o["hide_quote"])
+        png = render_photo(tw, parent, "dark" if o["bg"] == "Black" else "light", not o["hide_quote"], o["safe"])
         return dict(kind="photo", data=png, mime="image/png", name=f"tweet_{tid}.png")
 
     # ---- video ----
@@ -531,10 +540,10 @@ def generate(url, out_type, o):
             if not o["only_video"]:
                 list(ex.map(prefetch, collect_urls(tw)))
                 card = render_card(tw, "dark" if bgname == "black" else "light",
-                                   bgname == "blur", not o["hide_quote"])
+                                   bgname == "blur", not o["hide_quote"], o["safe"])
             vf.result()
         build_reel(vpath, card, bgname, o["layout"].startswith("Video bottom"),
-                   o["crop"], o["flip"], out, td)
+                   o["crop"], o["flip"], out, td, o["safe"])
         with open(out, "rb") as f:
             data = f.read()
     return dict(kind="video", data=data, mime="video/mp4", name=f"reel_{tid}.mp4")
@@ -553,6 +562,8 @@ def main():
         st.title("🎬 Tweet to Reel")
         with st.expander("Option Guide"):
             st.markdown(
+                "**Safe zone** – keeps all tweet text 135px from the sides and everything 250px from the "
+                "top/bottom so Instagram never cuts it off (on by default)\n\n"
                 "**Photo**\n"
                 "- *Background color* – white (light) or black (dark) tweet image\n"
                 "- *Hide quoted tweet* – leave out the embedded quote tweet\n"
@@ -567,7 +578,7 @@ def main():
         url = st.text_input("Tweet/X URL", placeholder="https://x.com/username/status/1234567890")
         out_type = st.radio("Output type", ["Photo", "Video"], horizontal=True)
         o = dict(bg="White", hide_quote=False, show_reply=False, only_video=False,
-                 layout="Video bottom – Tweet top", crop=False, flip=False, vid_num=1)
+                 layout="Video bottom – Tweet top", crop=False, flip=False, vid_num=1, safe=True)
 
         if out_type == "Photo":
             c1, c2 = st.columns(2)
@@ -586,6 +597,8 @@ def main():
             o["crop"] = c3.checkbox("Crop video to 1:1 before stacking")
             o["flip"] = c4.checkbox("Flip video horizontally")
             o["vid_num"] = int(c5.number_input("Video # (if several)", 1, 4, 1))
+
+        o["safe"] = st.checkbox("Keep text inside Instagram safe zone (135px sides, 250px top/bottom)", value=True)
 
         if st.button("Generate", type="primary"):
             if not url.strip():
