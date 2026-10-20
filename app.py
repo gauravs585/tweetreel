@@ -1,10 +1,12 @@
 """
-Tweet to Reel - personal Streamlit clone of tweet-to-reel.com
+Tweet to Reel – personal Streamlit clone of tweet-to-reel.com
 
 Features
-  Photo : background (white/black), hide quoted tweet, show tweet replied to
+  Photo : background (white/black), hide quoted tweet, show tweet replied to,
+          hide username, selectable fonts
   Video : only show video, background (white/blur/black), layout (tweet top/bottom),
           hide quoted tweet, crop video to 1:1, flip horizontally
+  Download : download raw video from Twitter, Instagram, TikTok
 Output  : 1080x1920 reel (video) or PNG (photo). No API keys needed (uses the FxTwitter API).
 """
 import glob
@@ -48,6 +50,68 @@ EMOJI_RE = re.compile(
 FONT_ROOTS = ["/usr/share/fonts", "/usr/local/share/fonts", "/Library/Fonts",
               "/System/Library/Fonts", "C:/Windows/Fonts", os.path.expanduser("~/.fonts")]
 
+# ----------------------------------------------------------------------------
+# Font catalogue
+# ----------------------------------------------------------------------------
+FONT_CATALOGUE = {
+    "Inter (Default)": {
+        "regular": ["Inter-Regular.otf", "Inter-Regular.ttf", "Inter_18pt-Regular.ttf"],
+        "bold":    ["Inter-Bold.otf", "Inter-Bold.ttf", "Inter_18pt-Bold.ttf"],
+    },
+    "Roboto": {
+        "regular": ["Roboto-Regular.ttf"],
+        "bold":    ["Roboto-Bold.ttf"],
+    },
+    "Arial": {
+        "regular": ["arial.ttf", "Arial.ttf", "Arial-Regular.ttf"],
+        "bold":    ["arialbd.ttf", "Arial Bold.ttf", "Arial-Bold.ttf"],
+    },
+    "Georgia": {
+        "regular": ["georgia.ttf", "Georgia.ttf", "Georgia-Regular.ttf"],
+        "bold":    ["georgiab.ttf", "Georgia Bold.ttf", "Georgia-Bold.ttf"],
+    },
+    "Times New Roman": {
+        "regular": ["times.ttf", "Times New Roman.ttf", "TimesNewRoman.ttf", "LiberationSerif-Regular.ttf"],
+        "bold":    ["timesbd.ttf", "Times New Roman Bold.ttf", "LiberationSerif-Bold.ttf"],
+    },
+    "Verdana": {
+        "regular": ["verdana.ttf", "Verdana.ttf", "Verdana-Regular.ttf"],
+        "bold":    ["verdanab.ttf", "Verdana Bold.ttf", "Verdana-Bold.ttf"],
+    },
+    "Trebuchet MS": {
+        "regular": ["trebuc.ttf", "Trebuchet MS.ttf", "TrebuchetMS.ttf"],
+        "bold":    ["trebucbd.ttf", "Trebuchet MS Bold.ttf", "TrebuchetMS-Bold.ttf"],
+    },
+    "Tahoma": {
+        "regular": ["tahoma.ttf", "Tahoma.ttf"],
+        "bold":    ["tahomabd.ttf", "Tahoma Bold.ttf"],
+    },
+    "Courier New": {
+        "regular": ["cour.ttf", "Courier New.ttf", "CourierNew.ttf", "LiberationMono-Regular.ttf"],
+        "bold":    ["courbd.ttf", "Courier New Bold.ttf", "LiberationMono-Bold.ttf"],
+    },
+    "Comic Sans MS": {
+        "regular": ["comic.ttf", "Comic Sans MS.ttf", "ComicSansMS.ttf"],
+        "bold":    ["comicbd.ttf", "Comic Sans MS Bold.ttf", "ComicSansMS-Bold.ttf"],
+    },
+    "DejaVu Sans": {
+        "regular": ["DejaVuSans.ttf"],
+        "bold":    ["DejaVuSans-Bold.ttf"],
+    },
+    "Liberation Sans": {
+        "regular": ["LiberationSans-Regular.ttf"],
+        "bold":    ["LiberationSans-Bold.ttf"],
+    },
+    "Impact": {
+        "regular": ["impact.ttf", "Impact.ttf"],
+        "bold":    ["impact.ttf", "Impact.ttf"],
+    },
+    "Lucida Console": {
+        "regular": ["lucon.ttf", "Lucida Console.ttf"],
+        "bold":    ["lucon.ttf", "Lucida Console.ttf"],
+    }
+}
+
 
 # ----------------------------------------------------------------------------
 # Fonts (per-word script fallback: Latin / Devanagari / Arabic / CJK)
@@ -65,26 +129,32 @@ def find_font(*names):
 
 
 @lru_cache(maxsize=None)
-def get_font(script, size, bold):
+def get_font(script, size, bold, font_family="Inter (Default)"):
     w = "Bold" if bold else "Regular"
     path = None
+
     if script == "deva":
         path = find_font(f"NotoSansDevanagari-{w}.ttf")
     elif script == "arab":
         path = find_font(f"NotoSansArabic-{w}.ttf")
     elif script == "cjk":
         path = find_font(f"NotoSansCJK-{w}.ttc", f"NotoSansCJKjp-{w}.otf")
+
+    if not path:
+        cat = FONT_CATALOGUE.get(font_family, FONT_CATALOGUE["Inter (Default)"])
+        key = "bold" if bold else "regular"
+        path = find_font(*cat[key])
+
     if not path:
         path = find_font(
             "Inter-Bold.otf" if bold else "Inter-Regular.otf",
             "Inter-Bold.ttf" if bold else "Inter-Regular.ttf",
-            "Inter_18pt-Bold.ttf" if bold else "Inter_18pt-Regular.ttf",
             "Roboto-Bold.ttf" if bold else "Roboto-Regular.ttf",
             "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf",
             "LiberationSans-Bold.ttf" if bold else "LiberationSans-Regular.ttf",
             "arialbd.ttf" if bold else "arial.ttf",
-            "Arial Bold.ttf" if bold else "Arial.ttf",
         )
+
     try:
         if path:
             return ImageFont.truetype(path, size)
@@ -106,12 +176,12 @@ def script_of(s):
     return "latin"
 
 
-def font_for(word, size, bold=False):
-    return get_font(script_of(word), size, bold)
+def font_for(word, size, bold=False, font_family="Inter (Default)"):
+    return get_font(script_of(word), size, bold, font_family)
 
 
-def text_w(s, size, bold=False):
-    return font_for(s, size, bold).getlength(s)
+def text_w(s, size, bold=False, font_family="Inter (Default)"):
+    return font_for(s, size, bold, font_family).getlength(s)
 
 
 def clean(s):
@@ -166,7 +236,6 @@ def add_play(img, box):
 
 
 def media_image(items, width, th):
-    """items: list of (url, is_video). Returns RGBA image with rounded corners."""
     tiles = []
     for url, is_vid in items[:4]:
         im = load_img(url) if url else None
@@ -205,8 +274,8 @@ def media_image(items, width, th):
 # ----------------------------------------------------------------------------
 # Text layout
 # ----------------------------------------------------------------------------
-def wrap(text, size, max_w, bold=False):
-    space = text_w(" ", size, bold)
+def wrap(text, size, max_w, bold=False, font_family="Inter (Default)"):
+    space = text_w(" ", size, bold, font_family)
     lines = []
     for para in text.split("\n"):
         if not para.strip():
@@ -214,17 +283,17 @@ def wrap(text, size, max_w, bold=False):
             continue
         cur, cw = [], 0
         for word in para.split():
-            wl = text_w(word, size, bold)
-            while wl > max_w and len(word) > 1:  # break very long words
+            wl = text_w(word, size, bold, font_family)
+            while wl > max_w and len(word) > 1:
                 n = len(word)
-                while n > 1 and text_w(word[:n], size, bold) > max_w:
+                while n > 1 and text_w(word[:n], size, bold, font_family) > max_w:
                     n -= 1
                 if cur:
                     lines.append(cur)
                     cur, cw = [], 0
                 lines.append([word[:n]])
                 word = word[n:]
-                wl = text_w(word, size, bold)
+                wl = text_w(word, size, bold, font_family)
             if not word:
                 continue
             add = wl if not cur else cw + space + wl
@@ -239,11 +308,11 @@ def wrap(text, size, max_w, bold=False):
     return lines
 
 
-def draw_words(d, x, y, words, size, bold, color, th, linkify=False):
-    sp = text_w(" ", size, bold)
+def draw_words(d, x, y, words, size, bold, color, th, linkify=False, font_family="Inter (Default)"):
+    sp = text_w(" ", size, bold, font_family)
     for w in words:
         c = th["link"] if linkify and is_link(w) else color
-        f = font_for(w, size, bold)
+        f = font_for(w, size, bold, font_family)
         d.text((x, y + int(size * ASC)), w, font=f, fill=c, anchor="ls")
         x += f.getlength(w) + sp
     return x
@@ -283,17 +352,17 @@ def media_items(tw):
 # ----------------------------------------------------------------------------
 # Tweet block / card renderers
 # ----------------------------------------------------------------------------
-def render_block(tw, th, width, quote=False, media=True, show_quote=True, show_date=True):
+def render_block(tw, th, width, quote=False, media=True, show_quote=True,
+                 show_date=True, hide_username=False, font_family="Inter (Default)"):
     S = QUOTE_S if quote else MAIN_S
     a = tw.get("author") or {}
     text = clean(tw.get("text", ""))
-    lines = wrap(text, S["text"], width)
+    lines = wrap(text, S["text"], width, font_family=font_family)
     q = tw.get("quote") if (show_quote and not quote) else None
     H = 3500 + len(lines) * S["lh"] + (3500 if q else 0)
     canvas = Image.new("RGBA", (width, H), th["bg"] + (255,))
     d = ImageDraw.Draw(canvas)
 
-    # avatar
     av = S["av"]
     img = load_img(a["avatar_url"].replace("_normal", "_400x400")) if a.get("avatar_url") else None
     if img is None:
@@ -301,7 +370,6 @@ def render_block(tw, th, width, quote=False, media=True, show_quote=True, show_d
     img = ImageOps.fit(img, (av, av), Image.LANCZOS)
     canvas.paste(img, (0, 0), rounded_mask((av, av), av // 2))
 
-    # name / handle / verified
     tx = av + 16
     nsz, hsz = S["name"], S["hand"]
     nh, hh = int(nsz * 1.25), int(hsz * 1.25)
@@ -310,18 +378,22 @@ def render_block(tw, th, width, quote=False, media=True, show_quote=True, show_d
     name = clean(a.get("name") or a.get("screen_name") or "").strip()
     verified = bool(a.get("verified") or (a.get("verification") or {}).get("verified"))
     max_nw = width - tx - (nsz + 10 if verified else 0)
-    if text_w(name, nsz, True) > max_nw:
-        while len(name) > 1 and text_w(name + "…", nsz, True) > max_nw:
+    if text_w(name, nsz, True, font_family) > max_nw:
+        while len(name) > 1 and text_w(name + "…", nsz, True, font_family) > max_nw:
             name = name[:-1]
         name += "…"
-    draw_words(d, tx, ny, name.split(" "), nsz, True, th["text"], th)
+    draw_words(d, tx, ny, name.split(" "), nsz, True, th["text"], th, font_family=font_family)
     if verified:
-        verified_badge(d, tx + text_w(name, nsz, True) + nsz * 0.65, ny + nh * 0.55, nsz * 0.4)
-    draw_words(d, tx, ny + nh, ["@" + (a.get("screen_name") or "")], hsz, False, th["sub"], th)
+        verified_badge(d, tx + text_w(name, nsz, True, font_family) + nsz * 0.65, ny + nh * 0.55, nsz * 0.4)
+
+    # Conditionally hide username[cite: 3]
+    if not hide_username:
+        draw_words(d, tx, ny + nh, ["@" + (a.get("screen_name") or "")], hsz, False, th["sub"], th,
+                   font_family=font_family)
 
     y = hdr + S["gap2"]
     for line in lines:
-        draw_words(d, 0, y, line, S["text"], False, th["text"], th, linkify=True)
+        draw_words(d, 0, y, line, S["text"], False, th["text"], th, linkify=True, font_family=font_family)
         y += S["lh"]
     if lines:
         y += S["gap"]
@@ -335,7 +407,8 @@ def render_block(tw, th, width, quote=False, media=True, show_quote=True, show_d
 
     if q:
         qp = 24
-        qi = render_block(q, th, width - 2 * qp, quote=True, media=True, show_quote=False, show_date=False)
+        qi = render_block(q, th, width - 2 * qp, quote=True, media=True, show_quote=False,
+                          show_date=False, hide_username=hide_username, font_family=font_family)
         box = Image.new("RGBA", (width, qi.height + 2 * qp), th["bg"] + (255,))
         box.paste(qi, (qp, qp))
         ImageDraw.Draw(box).rounded_rectangle((0, 0, width - 1, box.height - 1), 28, outline=th["border"], width=2)
@@ -346,19 +419,22 @@ def render_block(tw, th, width, quote=False, media=True, show_quote=True, show_d
         ds = fmt_date(tw)
         if ds:
             y += 4
-            draw_words(d, 0, y, [ds], S["date"], False, th["sub"], th)
+            draw_words(d, 0, y, [ds], S["date"], False, th["sub"], th, font_family=font_family)
             y += S["date"] + 8
 
     return canvas.crop((0, 0, width, max(y, av)))
 
 
-def render_photo(tw, parent, theme, show_quote, safe=True):
+def render_photo(tw, parent, theme, show_quote, safe=True, hide_username=False,
+                 font_family="Inter (Default)"):
     th = THEMES[theme]
     GAP = 28
     M, MY = (SAFE_X, SAFE_Y) if safe else (56, 56)
     inner = CW - 2 * M
-    mb = render_block(tw, th, inner, show_quote=show_quote)
-    pb = render_block(parent, th, inner, show_quote=False, show_date=False) if parent else None
+    mb = render_block(tw, th, inner, show_quote=show_quote, hide_username=hide_username,
+                      font_family=font_family)
+    pb = render_block(parent, th, inner, show_quote=False, show_date=False,
+                      hide_username=hide_username, font_family=font_family) if parent else None
     total = MY + (pb.height + GAP if pb else 0) + mb.height + MY
     img = Image.new("RGBA", (CW, total), th["bg"] + (255,))
     y = MY
@@ -375,14 +451,15 @@ def render_photo(tw, parent, theme, show_quote, safe=True):
     return buf.getvalue()
 
 
-def render_card(tw, theme, blur, show_quote, safe=True):
-    """Text-only tweet card used above/below the video in reels."""
+def render_card(tw, theme, blur, show_quote, safe=True, hide_username=False,
+                font_family="Inter (Default)"):
     th = THEMES[theme]
     mo, pad_x, pad_y = (24, 44, 40) if blur else (0, 56, 44)
     if safe:
-        pad_x = SAFE_X - mo  # text starts exactly at the safe-zone edge
+        pad_x = SAFE_X - mo
     inner = CW - 2 * mo - 2 * pad_x
-    block = render_block(tw, th, inner, media=False, show_quote=show_quote, show_date=False)
+    block = render_block(tw, th, inner, media=False, show_quote=show_quote, show_date=False,
+                         hide_username=hide_username, font_family=font_family)
     h = block.height + 2 * pad_y
     if blur:
         card = Image.new("RGBA", (CW, h), (0, 0, 0, 0))
@@ -433,7 +510,7 @@ def collect_urls(*tweets):
 
 
 # ----------------------------------------------------------------------------
-# Video
+# Video download helpers
 # ----------------------------------------------------------------------------
 def download_file(url, path):
     with requests.get(url, headers=UA, stream=True, timeout=30) as r:
@@ -452,6 +529,50 @@ def probe(path):
     return s["width"], s["height"]
 
 
+# ----------------------------------------------------------------------------
+# URL detection helpers for multi-platform support
+# ----------------------------------------------------------------------------
+def detect_platform(url):
+    url = (url or "").strip().lower()
+    if re.search(r"(twitter|x|fxtwitter|vxtwitter|fixupx)\.com/", url):
+        return "twitter"
+    if re.search(r"(instagram\.com|instagr\.am)/", url):
+        return "instagram"
+    if re.search(r"(tiktok\.com|vm\.tiktok\.com)/", url):
+        return "tiktok"
+    return None
+
+
+def download_with_ytdlp(url, output_dir):
+    if not shutil.which("yt-dlp"):
+        raise RuntimeError(
+            "yt-dlp is not installed. Install it with: `pip install yt-dlp`\n"
+            "Then restart the app."
+        )
+    out_template = os.path.join(output_dir, "downloaded.%(ext)s")
+    cmd = [
+        "yt-dlp",
+        "--no-playlist",
+        "--no-warnings",
+        "-f", "best[ext=mp4]/best",
+        "--merge-output-format", "mp4",
+        "-o", out_template,
+        url,
+    ]
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if p.returncode != 0:
+        err = p.stderr.strip() or p.stdout.strip()
+        raise RuntimeError(f"yt-dlp failed:\n{err[-600:]}")
+
+    for f in os.listdir(output_dir):
+        if f.startswith("downloaded."):
+            return os.path.join(output_dir, f)
+    raise RuntimeError("Download finished but no output file was found.")
+
+
+# ----------------------------------------------------------------------------
+# Reel builder (FFmpeg pipeline)
+# ----------------------------------------------------------------------------
 def build_reel(video_path, card, bg, tweet_on_top, crop, flip, out_path, workdir, safe=True):
     w, h = probe(video_path)
     ar = 1.0 if crop else h / w
@@ -506,6 +627,7 @@ def build_reel(video_path, card, bg, tweet_on_top, crop, flip, out_path, workdir
 def generate(url, out_type, o):
     user, tid = parse_url(url)
     tw = fetch_tweet(user, tid)
+    ff = o.get("font_family", "Inter (Default)")
 
     if out_type == "Photo":
         parent = None
@@ -519,10 +641,24 @@ def generate(url, out_type, o):
                     parent = None
         with ThreadPoolExecutor(8) as ex:
             list(ex.map(prefetch, collect_urls(tw, parent)))
-        png = render_photo(tw, parent, "dark" if o["bg"] == "Black" else "light", not o["hide_quote"], o["safe"])
+        png = render_photo(tw, parent, "dark" if o["bg"] == "Black" else "light",
+                           not o["hide_quote"], o["safe"], o["hide_username"], ff)
         return dict(kind="photo", data=png, mime="image/png", name=f"tweet_{tid}.png")
 
-    # ---- video ----
+    if out_type == "Just Video":
+        if not shutil.which("ffmpeg"):
+            raise RuntimeError("ffmpeg not found.")
+        vids = [m for m in (tw.get("media") or {}).get("all", []) if m.get("type") in ("video", "gif")]
+        if not vids:
+            raise ValueError("This tweet has no video.")
+        v = vids[min(o.get("vid_num", 1), len(vids)) - 1]
+        with tempfile.TemporaryDirectory() as td:
+            vpath = os.path.join(td, "video.mp4")
+            download_file(v["url"], vpath)
+            with open(vpath, "rb") as f:
+                data = f.read()
+        return dict(kind="video", data=data, mime="video/mp4", name=f"video_{tid}.mp4")
+
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg not found. Add `ffmpeg` to packages.txt when hosting.")
     vids = [m for m in (tw.get("media") or {}).get("all", []) if m.get("type") in ("video", "gif")]
@@ -540,7 +676,8 @@ def generate(url, out_type, o):
             if not o["only_video"]:
                 list(ex.map(prefetch, collect_urls(tw)))
                 card = render_card(tw, "dark" if bgname == "black" else "light",
-                                   bgname == "blur", not o["hide_quote"], o["safe"])
+                                   bgname == "blur", not o["hide_quote"], o["safe"],
+                                   o["hide_username"], ff)
             vf.result()
         build_reel(vpath, card, bgname, o["layout"].startswith("Video bottom"),
                    o["crop"], o["flip"], out, td, o["safe"])
@@ -549,64 +686,244 @@ def generate(url, out_type, o):
     return dict(kind="video", data=data, mime="video/mp4", name=f"reel_{tid}.mp4")
 
 
+def generate_download(url):
+    with tempfile.TemporaryDirectory() as td:
+        path = download_with_ytdlp(url, td)
+        with open(path, "rb") as f:
+            data = f.read()
+        ext = os.path.splitext(path)[1] or ".mp4"
+        platform = detect_platform(url) or "video"
+        ts = int(time.time())
+        return dict(kind="video", data=data, mime="video/mp4",
+                    name=f"{platform}_{ts}{ext}")
+
+
+# ----------------------------------------------------------------------------
+# Custom CSS for polished UI
+# ----------------------------------------------------------------------------
+CUSTOM_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+.block-container {
+    max-width: 820px !important;
+    padding-top: 1.5rem !important;
+    padding-bottom: 2rem !important;
+}
+
+h1 {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 800 !important;
+    letter-spacing: -0.5px;
+}
+
+.stTabs [data-baseweb="tab-list"] {
+    gap: 8px;
+    background: transparent;
+}
+.stTabs [data-baseweb="tab"] {
+    padding: 10px 24px;
+    border-radius: 10px 10px 0 0;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+
+div.stButton > button[kind="primary"],
+div.stButton > button[data-testid="stBaseButton-primary"] {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 12px !important;
+    padding: 0.65rem 1.5rem !important;
+    font-weight: 600 !important;
+    font-size: 1.05rem !important;
+    letter-spacing: 0.3px;
+    transition: all 0.2s ease;
+    width: 100% !important;
+}
+div.stButton > button[kind="primary"]:hover,
+div.stButton > button[data-testid="stBaseButton-primary"]:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+div.stDownloadButton > button {
+    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 12px !important;
+    padding: 0.65rem 1.5rem !important;
+    font-weight: 600 !important;
+    font-size: 1.05rem !important;
+    width: 100% !important;
+    transition: all 0.2s ease;
+}
+div.stDownloadButton > button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(56, 239, 125, 0.35);
+}
+
+div[data-testid="stTextInput"] input {
+    border-radius: 12px !important;
+    padding: 0.7rem 1rem !important;
+    border: 2px solid #e0e0e0 !important;
+    transition: border-color 0.2s ease;
+}
+div[data-testid="stTextInput"] input:focus {
+    border-color: #667eea !important;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15) !important;
+}
+
+details[data-testid="stExpander"] {
+    border-radius: 12px !important;
+    border: 1px solid #e8e8e8 !important;
+}
+
+div[data-testid="stAlert"] {
+    border-radius: 12px !important;
+}
+
+.quick-card {
+    background: linear-gradient(145deg, #f8f9ff 0%, #f0f2ff 100%);
+    border-radius: 16px;
+    padding: 1.2rem 1rem;
+    text-align: center;
+    border: 1px solid #e8ecff;
+    height: 100%;
+}
+.quick-card h4 {
+    margin: 0 0 6px 0;
+    color: #667eea;
+    font-size: 1.05rem;
+}
+.quick-card p {
+    margin: 0;
+    font-size: 0.88rem;
+    color: #555;
+    line-height: 1.4;
+}
+
+.badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin-right: 4px;
+}
+.badge-twitter  { background: #e8f5fd; color: #1d9bf0; }
+.badge-insta    { background: #fce4ec; color: #e1306c; }
+.badge-tiktok   { background: #e8f5e9; color: #25f4ee; border: 1px solid #25f4ee; }
+
+.styled-divider {
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #667eea, transparent);
+    border: none;
+    margin: 1.5rem 0;
+}
+
+.footer-text {
+    text-align: center;
+    color: #999;
+    font-size: 0.82rem;
+    padding: 1rem 0 0.5rem 0;
+}
+</style>
+"""
+
+
 # ----------------------------------------------------------------------------
 # UI
 # ----------------------------------------------------------------------------
 def main():
     st.set_page_config(page_title="Tweet to Reel", page_icon="🎬", layout="centered")
-    st.markdown("<style>.block-container{max-width:760px;padding-top:2rem}"
-                "div.stButton>button{width:100%}</style>", unsafe_allow_html=True)
-    home, instr = st.tabs(["Home", "Instructions"])
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-    with home:
-        st.title("🎬 Tweet to Reel")
-        with st.expander("Option Guide"):
+    st.title("🎬 Tweet to Reel")
+    st.markdown(
+        '<span class="badge badge-twitter">Twitter / X</span>'
+        '<span class="badge badge-insta">Instagram</span>'
+        '<span class="badge badge-tiktok">TikTok</span>',
+        unsafe_allow_html=True,
+    )
+
+    tab_home, tab_download, tab_guide = st.tabs(["🏠  Home", "⬇️  Download Video", "📖  Guide"])
+
+    with tab_home:
+        with st.expander("ℹ️  Option Guide", expanded=False):
             st.markdown(
-                "**Safe zone** – keeps all tweet text 135px from the sides and everything 250px from the "
-                "top/bottom so Instagram never cuts it off (on by default)\n\n"
+                "**Safe zone** – keeps all tweet text 135 px from the sides and 250 px from the "
+                "top / bottom so Instagram never cuts it off (on by default)\n\n"
                 "**Photo**\n"
                 "- *Background color* – white (light) or black (dark) tweet image\n"
                 "- *Hide quoted tweet* – leave out the embedded quote tweet\n"
-                "- *Show tweet replied to* – adds the parent tweet above with a thread line\n\n"
-                "**Video** (1080×1920 reel)\n"
+                "- *Show tweet replied to* – adds the parent tweet above with a thread line\n"
+                "- *Hide username* – removes the `@handle` from the rendered card\n"
+                "- *Font* – choose the font for the rendered tweet text\n\n"
+                "**Video** (1080 × 1920 reel)\n"
                 "- *Only show video* – no tweet card, just the video on the background\n"
                 "- *Background* – white, blurred copy of the video, or black\n"
                 "- *Layout* – tweet on top or at the bottom of the video\n"
                 "- *Crop to 1:1* – center-crops the video to a square before stacking\n"
-                "- *Flip* – mirrors the video horizontally")
+                "- *Flip* – mirrors the video horizontally\n\n"
+                "**Just Video** – downloads the raw video file from the tweet, no reel overlay")
 
-        url = st.text_input("Tweet/X URL", placeholder="https://x.com/username/status/1234567890")
-        out_type = st.radio("Output type", ["Photo", "Video"], horizontal=True)
+        url = st.text_input("🔗  Tweet / X URL", placeholder="https://x.com/username/status/1234567890",
+                            help="Paste any public tweet URL here")
+
+        out_type = st.radio("Output type", ["Photo", "Video", "Just Video"], horizontal=True,
+                            help="Photo = screenshot · Video = 1080×1920 reel · Just Video = raw video download")
+
         o = dict(bg="White", hide_quote=False, show_reply=False, only_video=False,
-                 layout="Video bottom – Tweet top", crop=False, flip=False, vid_num=1, safe=True)
+                 layout="Video bottom – Tweet top", crop=False, flip=False, vid_num=1,
+                 safe=True, hide_username=False, font_family="Inter (Default)")
+
+        st.markdown('<div class="styled-divider"></div>', unsafe_allow_html=True)
 
         if out_type == "Photo":
             c1, c2 = st.columns(2)
-            o["bg"] = c1.radio("Background color", ["White", "Black"], horizontal=True)
-            o["hide_quote"] = c2.radio("Hide quoted tweet", ["No", "Yes"], horizontal=True, key="hq_p") == "Yes"
-            o["show_reply"] = st.radio("Show tweet replied to", ["No", "Yes"], horizontal=True) == "Yes"
-        else:
+            o["bg"] = c1.radio("🎨 Background color", ["White", "Black"], horizontal=True)
+            o["hide_quote"] = c2.radio("💬 Hide quoted tweet", ["No", "Yes"], horizontal=True, key="hq_p") == "Yes"
+            c3, c4 = st.columns(2)
+            o["show_reply"] = c3.radio("↩️ Show tweet replied to", ["No", "Yes"], horizontal=True) == "Yes"
+            o["hide_username"] = c4.radio("👤 Hide username", ["No", "Yes"], horizontal=True, key="hu_p") == "Yes"
+            o["font_family"] = st.selectbox("🔤 Font", list(FONT_CATALOGUE.keys()), index=0, key="font_p")
+
+        elif out_type == "Video":
             c1, c2 = st.columns(2)
-            o["only_video"] = c1.radio("Only show video", ["No", "Yes"], horizontal=True) == "Yes"
-            o["bg"] = c2.radio("Background", ["White", "Blur", "Black"], horizontal=True)
-            o["layout"] = st.radio("Layout", ["Video bottom – Tweet top", "Video top – Tweet bottom"],
+            o["only_video"] = c1.radio("🎥 Only show video", ["No", "Yes"], horizontal=True) == "Yes"
+            o["bg"] = c2.radio("🎨 Background", ["White", "Blur", "Black"], horizontal=True)
+            o["layout"] = st.radio("📐 Layout", ["Video bottom – Tweet top", "Video top – Tweet bottom"],
                                    disabled=o["only_video"])
-            o["hide_quote"] = st.radio("Hide quoted tweet", ["No", "Yes"], horizontal=True, key="hq_v",
+            c3, c4 = st.columns(2)
+            o["hide_quote"] = c3.radio("💬 Hide quoted tweet", ["No", "Yes"], horizontal=True, key="hq_v",
                                        disabled=o["only_video"]) == "Yes"
-            c3, c4, c5 = st.columns(3)
-            o["crop"] = c3.checkbox("Crop video to 1:1 before stacking")
-            o["flip"] = c4.checkbox("Flip video horizontally")
-            o["vid_num"] = int(c5.number_input("Video # (if several)", 1, 4, 1))
+            o["hide_username"] = c4.radio("👤 Hide username", ["No", "Yes"], horizontal=True, key="hu_v") == "Yes"
+            c5, c6, c7 = st.columns(3)
+            o["crop"] = c5.checkbox("✂️ Crop to 1:1")
+            o["flip"] = c6.checkbox("🔄 Flip horizontally")
+            o["vid_num"] = int(c7.number_input("Video #", 1, 4, 1))
+            o["font_family"] = st.selectbox("🔤 Font", list(FONT_CATALOGUE.keys()), index=0, key="font_v")
 
-        o["safe"] = st.checkbox("Keep text inside Instagram safe zone (135px sides, 250px top/bottom)", value=True)
+        elif out_type == "Just Video":
+            o["vid_num"] = int(st.number_input("Video # (if tweet has multiple)", 1, 4, 1, key="jv_num"))
 
-        if st.button("Generate", type="primary"):
+        if out_type != "Just Video":
+            o["safe"] = st.checkbox("🛡️ Keep text inside Instagram safe zone (135 px sides, 250 px top/bottom)",
+                                    value=True)
+
+        st.markdown("")
+        if st.button("🚀  Generate", type="primary", use_container_width=True):
             if not url.strip():
                 st.warning("Paste a tweet URL first.")
             else:
                 t0 = time.time()
                 try:
-                    with st.spinner("Generating…"):
+                    with st.spinner("Generating… hang tight ✨"):
                         res = generate(url, out_type, o)
                     res["secs"] = time.time() - t0
                     st.session_state["result"] = res
@@ -616,33 +933,117 @@ def main():
 
         res = st.session_state.get("result")
         if res:
-            st.success(f"Done in {res['secs']:.1f}s")
+            st.success(f"✅  Done in {res['secs']:.1f} s")
             if res["kind"] == "photo":
                 st.image(res["data"], use_container_width=True)
             else:
                 _, mid, _ = st.columns([1, 2, 1])
                 mid.video(res["data"])
-            st.download_button("⬇️ Download", res["data"], file_name=res["name"], mime=res["mime"])
+            st.download_button("⬇️  Download", res["data"], file_name=res["name"], mime=res["mime"],
+                               use_container_width=True)
 
-        st.subheader("Quick Start Guide")
+        st.markdown("")
+        st.markdown('<div class="styled-divider"></div>', unsafe_allow_html=True)
         a, b, c = st.columns(3)
-        a.markdown("**1. Paste Tweet URL**\n\nCopy the link from any public tweet with or without video")
-        b.markdown("**2. Choose Options**\n\nSelect output type, layout, and background style")
-        c.markdown("**3. Download & Share**\n\nGet your optimized content ready for social media")
+        a.markdown(
+            '<div class="quick-card"><h4>1 · Paste URL</h4>'
+            '<p>Copy a public tweet link and paste it above</p></div>',
+            unsafe_allow_html=True)
+        b.markdown(
+            '<div class="quick-card"><h4>2 · Customize</h4>'
+            '<p>Pick output type, font, colors & layout</p></div>',
+            unsafe_allow_html=True)
+        c.markdown(
+            '<div class="quick-card"><h4>3 · Download</h4>'
+            '<p>Get your optimized content for social media</p></div>',
+            unsafe_allow_html=True)
 
-    with instr:
-        st.header("Instructions")
+    with tab_download:
+        st.subheader("⬇️  Download Video from Any Platform")
         st.markdown(
-            "1. Open a public tweet on X and copy its link (Share → Copy link).\n"
-            "2. Paste it into **Tweet/X URL** on the Home tab.\n"
-            "3. Pick **Photo** for a tweet screenshot or **Video** for a 1080×1920 reel.\n"
-            "4. Adjust the options and click **Generate**.\n"
-            "5. Download the result and post it to Reels, Shorts or TikTok.\n\n"
-            "**Notes**\n"
-            "- Only public tweets work.\n"
-            "- Emojis are removed from the tweet text in the rendered card.\n"
-            "- Photo mode with a video tweet shows the thumbnail with a play icon.")
-    st.caption("© Tweet to Reel – personal use")
+            "Paste a video URL from **Instagram**, **TikTok**, or **Twitter/X** "
+            "and download the video file directly.\n\n"
+            "Powered by [yt-dlp](https://github.com/yt-dlp/yt-dlp) — "
+            "no API keys needed."
+        )
+        dl_url = st.text_input(
+            "🔗  Video URL",
+            placeholder="https://www.instagram.com/reel/… or https://www.tiktok.com/@…/video/…",
+            key="dl_url",
+            help="Works with Instagram Reels/posts, TikTok videos, and Twitter/X video tweets"
+        )
+
+        platform = detect_platform(dl_url) if dl_url.strip() else None
+        if platform:
+            badge_cls = {"twitter": "badge-twitter", "instagram": "badge-insta", "tiktok": "badge-tiktok"}.get(
+                platform, "badge-twitter"
+            )
+            st.markdown(
+                f'Detected: <span class="badge {badge_cls}">{platform.title()}</span>',
+                unsafe_allow_html=True,
+            )
+
+        if st.button("⬇️  Download Video", type="primary", key="dl_btn", use_container_width=True):
+            if not dl_url.strip():
+                st.warning("Paste a video URL first.")
+            elif not detect_platform(dl_url):
+                st.error("Unsupported URL. Please paste an Instagram, TikTok, or Twitter/X link.")
+            else:
+                t0 = time.time()
+                try:
+                    with st.spinner(f"Downloading from {platform.title()}… 🔄"):
+                        res = generate_download(dl_url)
+                    res["secs"] = time.time() - t0
+                    st.session_state["dl_result"] = res
+                except Exception as e:
+                    st.session_state.pop("dl_result", None)
+                    st.error(f"Download failed: {e}")
+
+        dl_res = st.session_state.get("dl_result")
+        if dl_res:
+            st.success(f"✅  Downloaded in {dl_res['secs']:.1f} s  ({len(dl_res['data']) / (1024*1024):.1f} MB)")
+            _, mid, _ = st.columns([1, 2, 1])
+            mid.video(dl_res["data"])
+            st.download_button(
+                "⬇️  Save to Device", dl_res["data"],
+                file_name=dl_res["name"], mime=dl_res["mime"],
+                key="dl_save", use_container_width=True,
+            )
+
+        st.markdown("")
+        st.markdown('<div class="styled-divider"></div>', unsafe_allow_html=True)
+        st.markdown("**Supported platforms:**")
+        cols = st.columns(3)
+        cols[0].markdown("🐦 **Twitter / X**\nVideo tweets, GIFs")
+        cols[1].markdown("📸 **Instagram**\nReels, video posts")
+        cols[2].markdown("🎵 **TikTok**\nPublic videos")
+
+    with tab_guide:
+        st.header("📖  How to Use")
+        st.markdown(
+            "### Tweet → Photo / Video\n"
+            "1. Open a public tweet on X and copy its link (**Share → Copy link**).\n"
+            "2. Go to the **Home** tab and paste it into the URL field.\n"
+            "3. Pick **Photo** for a tweet screenshot, **Video** for a 1080 × 1920 reel, "
+            "or **Just Video** to grab only the raw video file.\n"
+            "4. Adjust options — font, background, layout, hide username, etc.\n"
+            "5. Click **Generate** and download the result.\n\n"
+            "### Download from Instagram / TikTok\n"
+            "1. Go to the **Download Video** tab.\n"
+            "2. Paste an Instagram Reel, TikTok, or Twitter video URL.\n"
+            "3. Click **Download Video** and save the file.\n\n"
+            "### Tips\n"
+            "- Only **public** tweets / posts work.\n"
+            "- Emojis are removed from rendered text to avoid font issues.\n"
+            "- Photo mode with a video tweet shows the thumbnail with a play icon.\n"
+            "- The **Hide username** toggle removes `@handle` from the card.\n"
+            "- Choose a **font** to match your brand or aesthetic.\n"
+            "- **Just Video** pulls the original video file — no overlays, no reel format.\n"
+            "- Instagram / TikTok download requires `yt-dlp` installed on the server."
+        )
+
+    st.markdown('<p class="footer-text">© Tweet to Reel – personal use · '
+                'Powered by FxTwitter API & yt-dlp</p>', unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
