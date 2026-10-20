@@ -1,6 +1,4 @@
-ffmpeg
-fonts-inter
-fonts-roboto
-fonts-dejavu-core
-fonts-noto-core
-fonts-noto-cjk
+streamlit>=1.40
+requests
+Pillow>=10
+yt-dlp
