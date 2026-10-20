@@ -1,3 +1,4 @@
 streamlit>=1.40
 requests
 Pillow>=10
+yt-dlp
