@@ -468,7 +468,7 @@ def media_items(tw):
 # Tweet block / card renderers
 # ----------------------------------------------------------------------------
 def render_block(tw, th, width, quote=False, media=True, show_quote=True,
-                 show_date=True, identity="show", font_family=DEFAULT_FONT):
+                 show_date=False, identity="show", font_family=DEFAULT_FONT):
     """identity: 'show' (avatar + name + @handle) · 'hide_handle' · 'hide_all' (text only)."""
     S = QUOTE_S if quote else MAIN_S
     a = tw.get("author") or {}
